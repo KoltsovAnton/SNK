@@ -368,7 +368,7 @@ contract SNKGame is AdminRole {
         games[_game].lastRightValue = select_at(_game, games[_game].lastRightPos);
 
         games[_game].lastLeftPos = getPos(_game, games[_game].lastLeftValue) - 1;
-        games[_game].lastRightPos = getPos(_game, games[_game].lastRightValue) - 1 + games[_game].bets[lastRightValue].dupes;
+        games[_game].lastRightPos = getPos(_game, games[_game].lastRightValue) - 1 + games[_game].bets[games[_game].lastRightValue].dupes;
 
         return true;
     }
@@ -404,13 +404,13 @@ contract SNKGame is AdminRole {
 
     function getPrize(uint _game) public {
         require(games[_game].allDone);
-        require(!games[_game].prizeExecuted[msg.sender]);
-        games[_game].prizeExecuted[msg.sender] = true;
+        require(!games[_game].executed[msg.sender]);
+        games[_game].executed[msg.sender] = true;
         uint amount;
 
         for (uint i = 0; i < games[_game].userBets[msg.sender].length; i++) {
             if (games[_game].userBets[msg.sender][i] >= games[_game].lastLeftValue &&
-                games[_game].userBets[msg.sender][i] <= games[_game].lastRightValue)
+            games[_game].userBets[msg.sender][i] <= games[_game].lastRightValue)
             {
                 amount += games[_game].betUsers[games[_game].userBets[msg.sender][i]][msg.sender];
             }
@@ -625,9 +625,6 @@ contract SNKGame is AdminRole {
         update_count(_game, value);
         update_count(_game, value_new);
     }
-
-
-
 
 }
 
