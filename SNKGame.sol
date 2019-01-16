@@ -117,6 +117,40 @@ library SafeMath {
     }
 }
 
+
+/**
+ * @title MerkleProof
+ * @dev Merkle proof verification based on
+ * https://github.com/ameensol/merkle-tree-solidity/blob/master/src/MerkleProof.sol
+ */
+library MerkleProof {
+    /**
+     * @dev Verifies a Merkle proof proving the existence of a leaf in a Merkle tree. Assumes that each pair of leaves
+     * and each pair of pre-images are sorted.
+     * @param proof Merkle proof containing sibling hashes on the branch from the leaf to the root of the Merkle tree
+     * @param root Merkle root
+     * @param leaf Leaf of Merkle tree
+     */
+    function verify(bytes32[] memory proof, bytes32 root, bytes32 leaf) internal pure returns (bool) {
+        bytes32 computedHash = leaf;
+
+        for (uint256 i = 0; i < proof.length; i++) {
+            bytes32 proofElement = proof[i];
+
+            if (computedHash < proofElement) {
+                // Hash(current computed hash + current element of the proof)
+                computedHash = keccak256(abi.encodePacked(computedHash, proofElement));
+            } else {
+                // Hash(current element of the proof + current computed hash)
+                computedHash = keccak256(abi.encodePacked(proofElement, computedHash));
+            }
+        }
+
+        // Check if the computed hash (root) is equal to the provided root
+        return computedHash == root;
+    }
+}
+
 /**
  * @title Roles
  * @dev Library for managing addresses assigned to a Role.
@@ -197,6 +231,8 @@ contract AdminRole {
     }
 }
 
+
+//TODO TEST + OWNER PERCENT
 contract SNKGame is AdminRole {
     using SafeMath for uint;
 
@@ -218,19 +254,22 @@ contract SNKGame is AdminRole {
         mapping(uint => address[]) users; //betValue => users
         mapping(uint => mapping(address => uint)) betUsers; // betValue => user => userBetAmount
         mapping(address => uint[]) userBets; //user => userBetValue
+        mapping(address => bool) executed; //user => prizeExecuted
 
         uint winnersAmount;
-        uint lastLeft;
-        uint lastRight;
-        //TODO bool AllDone (set left right and winnersAmount)
+        uint lastLeftPos;
+        uint lastRightPos;
+        uint lastLeftValue;
+        uint lastRightValue;
+        bool allDone;
     }
 
     mapping (uint => Game) public games;
+    mapping (uint => Game) public royalGames;
 
     uint public gameStep;
     uint public closeBetsTime;
     uint public gamesStart;
-
 
 
     constructor() public {
@@ -270,81 +309,86 @@ contract SNKGame is AdminRole {
 
     function setLastLeftRight(uint _game) onlyAdmin public returns (bool) {
         require(games[_game].res > 0);
+
+        //JackPot
         if (games[_game].bets[games[_game].res].dupes > 0) {
-            games[_game].lastLeft = games[_game].resPos;
-            games[_game].lastRight = games[_game].resPos;
+            games[_game].lastLeftPos = games[_game].resPos;
+            games[_game].lastRightPos = games[_game].resPos;
+            games[_game].lastLeftValue = games[_game].res;
+            games[_game].lastRightValue = games[_game].res;
             return true;
         }
 
-        uint betsCount = count(_game);
-        uint winnersCount;
+        uint lastPos = count(_game) - 1;
 
+        if (lastPos < 19) { //1 winner
+            if (games[_game].resPos == 0 || games[_game].resPos == lastPos) {
+                games[_game].lastLeftPos = games[_game].resPos == 0 ? 1 : lastPos - 1;
+                games[_game].lastRightPos = games[_game].lastLeftPos;
+            } else {
+                uint leftBet =  select_at(_game, games[_game].resPos - 1);
+                uint rightBet = select_at(_game, games[_game].resPos + 1);
+                uint leftBetDif = games[_game].res - leftBet;
+                uint rightBetDif = rightBet - games[_game].res;
 
-        if (betsCount < 10) {
-            winnersCount = 1;
+                if (leftBetDif == rightBetDif) {
+                    games[_game].lastLeftPos = games[_game].resPos - 1;
+                    games[_game].lastRightPos = games[_game].resPos + 1;
+                }
+
+                if (leftBetDif > rightBetDif) {
+                    games[_game].lastLeftPos = games[_game].resPos + 1;
+                    games[_game].lastRightPos = games[_game].resPos + 1;
+                }
+
+                if (leftBetDif < rightBetDif) {
+                    games[_game].lastLeftPos = games[_game].resPos - 1;
+                    games[_game].lastRightPos = games[_game].resPos - 1;
+                }
+            }
         } else {
-            winnersCount = betsCount.mul(10).div(100);
-        }
+            uint winnersCount = lastPos.add(1).mul(10).div(100);
+            uint halfWinners = winnersCount.div(2);
 
-        //TODO duples + games[_game].bets[select_at(_game, winnersCount)].dupes
-        if (games[_game].resPos == 0) {
-            games[_game].lastLeft = 1;
-            games[_game].lastRight = winnersCount;
-            return true;
-        }
-
-        //TODO overflow
-        if (games[_game].resPos == betsCount - 1) {
-            games[_game].lastRight = betsCount - 2;
-            games[_game].lastLeft = betsCount - 2 - winnersCount;
-            return true;
-        }
-
-        //TODO duples
-        if (winnersCount == 1) {
-            uint leftBet = games[_game].res - select_at(_game, games[_game].resPos - 1);
-            uint rightBet = select_at(_game, games[_game].resPos + 1) - games[_game].res;
-
-            if (leftBet == rightBet) {
-                games[_game].lastLeft = games[_game].resPos - 1;
-                games[_game].lastRight = games[_game].resPos + 1;
-                return true;
-            }
-
-            if (leftBet > rightBet) {
-                games[_game].lastLeft = games[_game].resPos + 1;
-                games[_game].lastRight = games[_game].resPos + 1;
-                return true;
-            }
-
-            if (leftBet < rightBet) {
-                games[_game].lastLeft = games[_game].resPos - 1;
-                games[_game].lastRight = games[_game].resPos - 1;
-                return true;
+            if (games[_game].resPos < halfWinners) {
+                games[_game].lastLeftPos = 0;
+                games[_game].lastRightPos = games[_game].lastLeftPos + winnersCount;
+            } else {
+                if (games[_game].resPos + halfWinners > lastPos) {
+                    games[_game].lastRightPos = lastPos;
+                    games[_game].lastLeftPos = lastPos - winnersCount;
+                } else {
+                    games[_game].lastLeftPos = games[_game].resPos - halfWinners;
+                    games[_game].lastRightPos = games[_game].lastLeftPos + winnersCount;
+                }
             }
         }
 
-        winnersCount = winnersCount.div(2);
+        games[_game].lastLeftValue = select_at(_game, games[_game].lastLeftPos);
+        games[_game].lastRightValue = select_at(_game, games[_game].lastRightPos);
 
-        //TODO overflow + duples + разницу между overflow
-        games[_game].lastLeft = games[_game].resPos - winnersCount;
-        games[_game].lastRight = games[_game].resPos + winnersCount;
+        games[_game].lastLeftPos = getPos(_game, games[_game].lastLeftValue) - 1;
+        games[_game].lastRightPos = getPos(_game, games[_game].lastRightValue) - 1 + games[_game].bets[lastRightValue].dupes;
 
         return true;
     }
 
-    //TODO iteration count
-    function setWinnersAmount(uint _game) onlyAdmin public {
+
+    function setWinnersAmount(uint _game, uint _start, uint _stop) onlyAdmin public {
         uint _bet;
-        if (games[_game].lastLeft == games[_game].lastRight) {
-            _bet = select_at(_game, games[_game].lastLeft);
+        if (games[_game].lastLeftPos == games[_game].lastRightPos) {
+            _bet = select_at(_game, games[_game].lastLeftPos);
             games[_game].winnersAmount = getBetAmount(_game, _bet);
+            games[_game].allDone = true;
         } else {
-           for (uint i = games[_game].lastLeft; i <= games[_game].lastRight; i++) {
+            _start = _start > 0 ? _start : games[_game].lastLeftPos;
+            _stop = _stop > 0 ? _stop : games[_game].lastRightPos;
+            for (uint i = _start; i <= _stop; i++) {
                 if (i == games[_game].resPos) continue;
                 _bet = select_at(_game, i);
                 games[_game].winnersAmount = games[_game].winnersAmount.add(getBetAmount(_game, _bet));
-           }
+                if (i == games[_game].lastRightPos) games[_game].allDone = true;
+            }
         }
     }
 
@@ -357,11 +401,40 @@ contract SNKGame is AdminRole {
         return amount;
     }
 
-    //TODO get once
+
     function getPrize(uint _game) public {
-        require(games[_game].winnersAmount > 0);
-        //
+        require(games[_game].allDone);
+        require(!games[_game].prizeExecuted[msg.sender]);
+        games[_game].prizeExecuted[msg.sender] = true;
+        uint amount;
+
+        for (uint i = 0; i < games[_game].userBets[msg.sender].length; i++) {
+            if (games[_game].userBets[msg.sender][i] >= games[_game].lastLeftValue &&
+                games[_game].userBets[msg.sender][i] <= games[_game].lastRightValue)
+            {
+                amount += games[_game].betUsers[games[_game].userBets[msg.sender][i]][msg.sender];
+            }
+        }
+
+        if (amount > 0) {
+            uint p = percent(amount, games[_game].winnersAmount, 4);
+            msg.sender.transfer(valueFromPercent(games[_game].amount, p));
+        }
     }
+
+
+    function valueFromPercent(uint _value, uint _percent) internal pure returns(uint quotient) {
+        uint _quotient = _value.mul(_percent).div(10000);
+        return ( _quotient);
+    }
+
+
+    function percent(uint numerator, uint denominator, uint precision) internal pure returns(uint) {
+        uint _numerator  = numerator * 10 ** (precision+1);
+        uint _quotient =  ((_numerator / denominator) + 5) / 10;
+        return _quotient;
+    }
+
 
     function getGameTime(uint _id) public view returns (uint) {
         return gamesStart + (gameStep * _id);
@@ -554,226 +627,7 @@ contract SNKGame is AdminRole {
     }
 
 
-//    function rank(uint _game, uint value) public view returns (uint smaller){
-//        if(value!=0){
-//            smaller=games[_game].bets[0].dupes;
-//            uint cur=games[_game].bets[0].children[true];
-//            Node storage cur_node=games[_game].bets[cur];
-//            while(true){
-//                if (cur<=value){
-//                    if(cur<value)
-//                        smaller+=1+cur_node.dupes;
-//                    uint left_child=cur_node.children[false];
-//                    if (left_child!=0)
-//                        smaller+=games[_game].bets[left_child].count;
-//                }
-//                if (cur==value)
-//                    break;
-//                cur=cur_node.children[cur<value];
-//            }
-//        }
-//    }
-    //////////////////////////////////////////////////////////////////////////////
 
-//    function rebalance_delete(uint _game, uint p_value,bool side) private{
-//        if (p_value!=0) {
-//            update_height(_game, p_value);
-//            int p_bf=balance_factor(_game, p_value);
-//            //bool dir=side;
-//            int sign;
-//            if (side)
-//                sign=1;
-//            else
-//                sign=-1;
-//            int bf=balance_factor(_game, p_value);
-//            if (bf==(2*sign)) {
-//                Node storage p=games[_game].bets[p_value];
-//                uint s_value=p.children[!side];
-//                int s_bf=balance_factor(_game, s_value);
-//                if (s_bf == (-1 * sign))
-//                    rotate(_game, s_value,!side);
-//                rotate(_game, p_value,side);
-//                if (s_bf!=0){
-//                    p=games[_game].bets[p_value];
-//                    rebalance_delete(_game, p.parent,p.side);
-//                }
-//            }
-//            else if (p_bf != sign){
-//                p=games[_game].bets[p_value];
-//                rebalance_delete(_game, p.parent,p.side);
-//            }
-//        }
-//    }
-//
-//    function fix_parents(uint _game, uint parent,bool side) private {
-//        if(parent!=0) {
-//            update_count(_game, parent);
-//            update_counts(_game, parent);
-//            rebalance_delete(_game, parent,side);
-//        }
-//    }
-
-//    function rightmost_leaf(uint _game, uint value) private view returns (uint leaf) {
-//        uint child=games[_game].bets[value].children[true];
-//        if (child!=0)
-//            return rightmost_leaf(_game, child);
-//        else
-//            return value;
-//    }
-
-//    function zero_out(uint _game, uint value) private {
-//        Node storage n=games[_game].bets[value];
-//        n.parent=0;
-//        n.side=false;
-//        n.children[false]=0;
-//        n.children[true]=0;
-//        n.count=0;
-//        n.height=0;
-//        n.dupes=0;
-//    }
-
-//    function remove_branch(uint _game, uint value,uint left,uint right) private {
-//        uint ipn=rightmost_leaf(_game, left);
-//        Node storage i=games[_game].bets[ipn];
-//        uint dupes=i.dupes;
-//        remove_helper(_game, ipn);
-//        Node storage n=games[_game].bets[value];
-//        uint parent=n.parent;
-//        Node storage p=games[_game].bets[parent];
-//        uint height=n.height;
-//        bool side=n.side;
-//        uint count=n.count;
-//        right=n.children[true];
-//        left=n.children[false];
-//        p.children[side]=ipn;
-//        i.parent=parent;
-//        i.side=side;
-//        i.count=count+dupes-n.dupes;
-//        i.height=height;
-//        i.dupes=dupes;
-//        if (left!=0) {
-//            i.children[false]=left;
-//            games[_game].bets[left].parent=ipn;
-//        }
-//        if (right!=0) {
-//            i.children[true]=right;
-//            games[_game].bets[right].parent=ipn;
-//        }
-//        zero_out(_game, value);
-//        update_counts(_game, ipn);
-//    }
-//
-//    function remove_helper(uint _game, uint value) private {
-//        Node storage n=games[_game].bets[value];
-//        uint parent=n.parent;
-//        bool side=n.side;
-//        Node storage p=games[_game].bets[parent];
-//        uint left=n.children[false];
-//        uint right=n.children[true];
-//        if ((left == 0) && (right == 0)) {
-//            p.children[side]=0;
-//            zero_out(_game, value);
-//            fix_parents(_game, parent,side);
-//        }
-//        else if ((left !=0) && (right != 0)) {
-//            remove_branch(_game, value,left,right);
-//        }
-//        else {
-//            uint child=left+right;
-//            Node storage c=games[_game].bets[child];
-//            p.children[side]=child;
-//            c.parent=parent;
-//            c.side=side;
-//            zero_out(_game, value);
-//            fix_parents(_game, parent,side);
-//        }
-//    }
-//
-//    function remove(uint _game, uint value) public {
-//        Node storage n=games[_game].bets[value];
-//        if (value==0){
-//            if (n.dupes==0)
-//                return;
-//        }
-//        else{
-//            if (n.count==0)
-//                return;
-//        }
-//        if (n.dupes>0) {
-//            n.dupes--;
-//            if(value!=0)
-//                n.count--;
-//            fix_parents(_game, n.parent,n.side);
-//        }
-//        else
-//            remove_helper(_game, value);
-//    }
-
-
-
-
-
-//    function in_top_n(uint _game, uint value, uint n) public view returns (bool truth){
-//        uint pos=rank(_game, value);
-//        uint num=count(_game);
-//        return (num-pos-1<n);
-//    }
-//
-//    function percentile(uint _game, uint value) public view returns (uint k){
-//        uint pos=rank(_game, value);
-//        uint same=games[_game].bets[value].dupes;
-//        uint num=count(_game);
-//        return (pos*100+(same*100+100)/2)/num;
-//    }
-//
-//    function at_percentile(uint _game, uint _percentile) public view returns (uint){
-//        uint n=count(_game);
-//        return select_at(_game, _percentile*n/100);
-//    }
-//
-//    function permille(uint _game, uint value) public view returns (uint k){
-//        uint pos=rank(_game, value);
-//        uint same=games[_game].bets[value].dupes;
-//        uint num=count(_game);
-//        return (pos*1000+(same*1000+1000)/2)/num;
-//    }
-//
-//    function at_permille(uint _game, uint _permille) public view returns (uint){
-//        uint n=count(_game);
-//        return select_at(_game, _permille*n/1000);
-//    }
-//
-//    function median(uint _game) public view returns (uint value){
-//        return at_percentile(_game, 50);
-//    }
-//
-//    function node_left_child(uint _game, uint value) public view returns (uint child){
-//        child=games[_game].bets[value].children[false];
-//    }
-//
-//    function node_right_child(uint _game, uint value) public view returns (uint child){
-//        child=games[_game].bets[value].children[true];
-//    }
-//
-//    function node_parent(uint _game, uint value) public view returns (uint parent){
-//        parent=games[_game].bets[value].parent;
-//    }
-//
-//    function node_side(uint _game, uint value) public view returns (bool side){
-//        side=games[_game].bets[value].side;
-//    }
-//
-//    function node_height(uint _game, uint value) public view returns (uint height){
-//        height=games[_game].bets[value].height;
-//    }
-//
-//    function node_count(uint _game, uint value) public view returns (uint){
-//        return games[_game].bets[value].count;
-//    }
-//
-//    function node_dupes(uint _game, uint value) public view returns (uint dupes){
-//        dupes=games[_game].bets[value].dupes;
-//    }
 
 }
 
