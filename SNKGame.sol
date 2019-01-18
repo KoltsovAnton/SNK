@@ -232,7 +232,7 @@ contract AdminRole {
 }
 
 
-//TODO TEST + OWNER PERCENT
+//TODO OWNER PERCENT 10% => 5% royal 1 ref 4%owner
 contract SNKGame is AdminRole {
     using SafeMath for uint;
 
@@ -284,8 +284,10 @@ contract SNKGame is AdminRole {
     }
 
 
+
     function makeBet(uint _game, uint _bet) public payable {
         require(_bet > 0);
+        require(msg.value > 0);
         require(getGameTime(_game) - closeBetsTime > now);
 
         if (games[_game].betUsers[_bet][msg.sender] == 0) {
@@ -322,6 +324,7 @@ contract SNKGame is AdminRole {
         uint lastPos = count(_game) - 1;
 
         if (lastPos < 19) { //1 winner
+            //если результат на первой или последней позиции то ставим победителя слева или справа
             if (games[_game].resPos == 0 || games[_game].resPos == lastPos) {
                 games[_game].lastLeftPos = games[_game].resPos == 0 ? 1 : lastPos - 1;
                 games[_game].lastRightPos = games[_game].lastLeftPos;
@@ -342,6 +345,7 @@ contract SNKGame is AdminRole {
                 }
 
                 if (leftBetDif < rightBetDif) {
+                    //дубликатов в resPos нет, т.к. проверили выше в джекпоте
                     games[_game].lastLeftPos = games[_game].resPos - 1;
                     games[_game].lastRightPos = games[_game].resPos - 1;
                 }
@@ -367,13 +371,72 @@ contract SNKGame is AdminRole {
         games[_game].lastLeftValue = select_at(_game, games[_game].lastLeftPos);
         games[_game].lastRightValue = select_at(_game, games[_game].lastRightPos);
 
+
+        //не учитывает дубликаты для left - dupes для right + dupes, но они и не нужны нам
         games[_game].lastLeftPos = getPos(_game, games[_game].lastLeftValue) - 1;
-        games[_game].lastRightPos = getPos(_game, games[_game].lastRightValue) - 1 + games[_game].bets[games[_game].lastRightValue].dupes;
+        games[_game].lastRightPos = getPos(_game, games[_game].lastRightValue) - 1;// + games[_game].bets[games[_game].lastRightValue].dupes;
+
+        return true;
+    }
+
+    //TODO gaslimit
+    function shiftLeftRight(uint _game) onlyAdmin public returns (bool) {
+        uint leftBetDif = games[_game].res - games[_game].lastLeftValue;
+        uint rightBetDif = games[_game].lastRightValue - games[_game].res;
+        if (rightBetDif == leftBetDif) return true;
+
+        uint _val;
+        uint lastPos = count(_game) - 1;
+
+        if (leftBetDif > rightBetDif) {
+            if (games[_game].lastRightPos == lastPos) return true;
+            if (games[_game].lastLeftPos >= games[_game].resPos) return true;
+            // в lastRightPos последняя позиция дубля поэтому просто +1
+            _val = select_at(_game, games[_game].lastRightPos + 1);
+            rightBetDif = _val - games[_game].res;
+            while (leftBetDif > rightBetDif) {
+
+                games[_game].lastRightValue = _val;
+                games[_game].lastRightPos = games[_game].lastRightPos + 1 + games[_game].bets[_val].dupes;
+
+                games[_game].lastLeftValue = select_at(_game, games[_game].lastLeftPos + 1);
+                games[_game].lastLeftPos = getPos(_game, games[_game].lastLeftValue) - 1;
+
+                if (games[_game].lastRightPos == lastPos) break;
+                if (games[_game].lastLeftPos >= games[_game].resPos) break;
+
+                _val = select_at(_game, games[_game].lastRightPos + 1);
+                leftBetDif = games[_game].res - games[_game].lastLeftValue;
+                rightBetDif = _val - games[_game].res;
+            }
+
+        } else {
+            if (games[_game].lastLeftPos - games[_game].bets[games[_game].lastLeftValue].dupes == 0) return true;
+            if (games[_game].lastRightPos <= games[_game].resPos) return true;
+            //последняя позиция дубля поэтому минус дубликаты
+            _val = select_at(_game, games[_game].lastLeftPos - games[_game].bets[games[_game].lastLeftValue].dupes - 1);
+            leftBetDif = games[_game].res - _val;
+            while (rightBetDif > leftBetDif) {
+                games[_game].lastLeftValue = _val;
+                games[_game].lastLeftPos = games[_game].lastLeftPos - games[_game].bets[games[_game].lastLeftValue].dupes - 1;
+
+                games[_game].lastRightPos = games[_game].lastRightPos - games[_game].bets[games[_game].lastRightValue].dupes - 1;
+                games[_game].lastRightValue = select_at(_game, games[_game].lastRightPos);
+
+                if (games[_game].lastLeftPos - games[_game].bets[games[_game].lastLeftValue].dupes == 0) break;
+                if (games[_game].lastRightPos <= games[_game].resPos) break;
+
+                _val = select_at(_game, games[_game].lastLeftPos - games[_game].bets[games[_game].lastLeftValue].dupes - 1);
+                leftBetDif = games[_game].res - games[_game].lastLeftValue;
+                rightBetDif = _val - games[_game].res;
+            }
+        }
 
         return true;
     }
 
 
+    //при передачи старт и стоп необходимо учитывать дубликаты (старт = последняя позиция дубликата)
     function setWinnersAmount(uint _game, uint _start, uint _stop) onlyAdmin public {
         uint _bet;
         if (games[_game].lastLeftPos == games[_game].lastRightPos) {
@@ -383,11 +446,22 @@ contract SNKGame is AdminRole {
         } else {
             _start = _start > 0 ? _start : games[_game].lastLeftPos;
             _stop = _stop > 0 ? _stop : games[_game].lastRightPos;
-            for (uint i = _start; i <= _stop; i++) {
-                if (i == games[_game].resPos) continue;
+            uint i = _start;
+            while(i <= _stop) {
+                if (i == games[_game].resPos) {
+                    i++;
+                    continue;
+                }
                 _bet = select_at(_game, i);
                 games[_game].winnersAmount = games[_game].winnersAmount.add(getBetAmount(_game, _bet));
-                if (i == games[_game].lastRightPos) games[_game].allDone = true;
+
+                //верим что старт == последней позиции дубликата
+                if (i != _start && games[_game].bets[_bet].dupes > 0) {
+                    i += games[_game].bets[_bet].dupes;
+                }
+
+                if (i >= games[_game].lastRightPos) games[_game].allDone = true;
+                i++;
             }
         }
     }
@@ -452,6 +526,7 @@ contract SNKGame is AdminRole {
     }
 
     //return pos+1; 0 == error
+    //если есть дупбликаты, то возвращает позицию послденего элемента
     function getPos(uint _game, uint _value) public view returns (uint) {
         uint _count = count(_game);
         if (_count == 0) return 0;
