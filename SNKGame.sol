@@ -371,13 +371,13 @@ contract SNKGame is AdminRole {
         _insertResult(games[_game], _res);
     }
 
-
     function insertResultRoyal(uint _game, uint _res) onlyAdmin public {
         //require(getGameTimeRoyal(_game) < now);
         _insertResult(royalGames[_game], _res);
         royalGames[_game].amount = royalGames[_game].amount.add(royalGameBonus);
         royalGameBonus = 0;
     }
+
 
     function setLastLeftRight(uint _game) onlyAdmin public {
         _setLastLeftRight(games[_game]);
@@ -386,6 +386,7 @@ contract SNKGame is AdminRole {
     function setLastLeftRightRoyal(uint _game) onlyAdmin public {
         _setLastLeftRight(royalGames[_game]);
     }
+
 
     function shiftLeftRight(uint _game) onlyAdmin public {
         _shiftLeftRight(games[_game]);
@@ -413,12 +414,11 @@ contract SNKGame is AdminRole {
     }
 
 
-    function _getPrize(uint _game) public {
+    function getPrize(uint _game) public {
         _getPrize(games[_game]);
     }
 
-
-    function _getPrizeRoyal(uint _game) public {
+    function getPrizeRoyal(uint _game) public {
         _getPrize(royalGames[_game]);
     }
 
@@ -426,7 +426,6 @@ contract SNKGame is AdminRole {
     function getGameTime(uint _id) public view returns (uint) {
         return gamesStart + (gameStep * _id);
     }
-
 
     function getGameTimeRoyal(uint _id) public view returns (uint) {
         return gamesStartRoyal + (gameStepRoyal * _id);
