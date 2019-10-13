@@ -266,12 +266,16 @@ contract AdminRole {
     //    }
 }
 
+contract DividendManagerInterface {
+    function depositDividend() external payable;
+}
+
 
 //TODO referral
 contract SNKGame is AdminRole {
     using SafeMath for uint;
 
-    address payable public dividendManagerAddress;
+    address public dividendManagerAddress;
 
     struct Node {
         mapping (bool => uint) children;
@@ -294,8 +298,6 @@ contract SNKGame is AdminRole {
         mapping(address => bool) executed; //user => prizeExecuted
 
         uint winnersAmount;
-        uint prizePool;
-        //        uint winnersCount;
         uint lastLeftPos;
         uint lastRightPos;
         uint lastLeftValue;
@@ -304,26 +306,36 @@ contract SNKGame is AdminRole {
     }
 
     mapping (uint => Game) public games;
+    mapping (uint => Game) public royalGames;
 
     uint public gameStep;
     uint public closeBetsTime;
     uint public gamesStart;
-    uint public betValue;
 
+    uint public gameStepRoyal;
+    uint public closeBetsTimeRoyal;
+    uint public gamesStartRoyal;
+
+    uint public royalGameBonus;
 
 
     event NewBet(address indexed user, uint indexed game, uint bet, uint value);
+    event NewRoyalBet(address indexed user, uint indexed game, uint bet, uint value);
     event ResultSet(uint indexed game, uint res, uint lastLeftValue, uint lastRightValue, uint amount);
     event PrizeTaken(address indexed user, uint game, uint amount);
+    event RoyalResultSet(uint indexed game, uint res, uint lastLeftValue, uint lastRightValue, uint amount);
 
-    constructor(address payable _dividendManagerAddress, uint _betValue) public {
+    constructor(address _dividendManagerAddress) public {
         require(_dividendManagerAddress != address(0));
         dividendManagerAddress = _dividendManagerAddress;
 
         gameStep = 10 minutes;
         closeBetsTime = 3 minutes;
         gamesStart = 1568332800; //Friday, 13 September 2019 г., 0:00:00
-        betValue = _betValue;
+
+        gameStepRoyal = 3 days;
+        closeBetsTimeRoyal = 1 days;
+        gamesStartRoyal = 1568332800; //Friday, 13 September 2019 г., 0:00:00
     }
 
 
@@ -334,7 +346,7 @@ contract SNKGame is AdminRole {
 
     function makeBet(uint _game, uint _bet) public payable {
         require(_bet > 0);
-        require(betValue == 0 ? msg.value > 0 : msg.value == betValue);
+        require(msg.value > 0);
         if (_game == 0) {
             _game = getCurrentGameId();
             if (now > getGameTime(_game) - closeBetsTime) {
@@ -349,6 +361,18 @@ contract SNKGame is AdminRole {
         emit NewBet(msg.sender, _game, _bet, msg.value);
     }
 
+    //TODO merkle proof
+    function makeBetRoyal(uint _game, uint _bet) public payable {
+        require(_bet > 0);
+        require(msg.value > 0);
+        require(getGameTimeRoyal(_game) - closeBetsTimeRoyal > now);
+
+        _makeBet(royalGames[_game], _bet);
+
+        emit NewRoyalBet(msg.sender, _game, _bet, msg.value);
+    }
+
+
     function setRes(uint _game, uint _res) onlyAdmin public {
         insertResult(_game, _res);
         setLastLeftRight(_game);
@@ -361,12 +385,29 @@ contract SNKGame is AdminRole {
         _insertResult(games[_game], _res);
     }
 
+    function insertResultRoyal(uint _game, uint _res) onlyAdmin public {
+        //require(getGameTimeRoyal(_game) < now);
+        _insertResult(royalGames[_game], _res);
+        royalGames[_game].amount = royalGames[_game].amount.add(royalGameBonus);
+        royalGameBonus = 0;
+    }
+
+
     function setLastLeftRight(uint _game) onlyAdmin public {
         _setLastLeftRight(games[_game]);
     }
 
+    function setLastLeftRightRoyal(uint _game) onlyAdmin public {
+        _setLastLeftRight(royalGames[_game]);
+    }
+
+
     function shiftLeftRight(uint _game) onlyAdmin public {
         _shiftLeftRight(games[_game]);
+    }
+
+    function shiftLeftRightRoyal(uint _game) onlyAdmin public {
+        _shiftLeftRight(royalGames[_game]);
     }
 
 
@@ -377,6 +418,15 @@ contract SNKGame is AdminRole {
             emit ResultSet(_game, games[_game].res, games[_game].lastLeftValue, games[_game].lastRightValue, games[_game].amount);
         }
     }
+
+    //при передачи старт и стоп необходимо учитывать дубликаты (старт = последняя позиция дубликата)
+    function setWinnersAmountRoyal(uint _game, uint _start, uint _stop) onlyAdmin public {
+        _setWinnersAmount(royalGames[_game], _start, _stop);
+        if (royalGames[_game].allDone) {
+            emit RoyalResultSet(_game, royalGames[_game].res, royalGames[_game].lastLeftValue, royalGames[_game].lastRightValue, royalGames[_game].amount);
+        }
+    }
+
 
     function isPrizeTaken(uint _game, address _user) public view returns (bool){
         return games[_game].executed[_user];
@@ -405,11 +455,25 @@ contract SNKGame is AdminRole {
         getPrize(_game, msg.sender);
     }
 
+
+    function getPrizeRoyal(uint _game, address _user) public {
+        uint amount = _getPrize(royalGames[_game], _user);
+        emit PrizeTaken(_user, _game, amount);
+    }
+    function getPrizeRoyal(uint _game) public {
+        getPrizeRoyal(_game, msg.sender);
+    }
+
+
     function getGameTime(uint _id) public view returns (uint) {
         return gamesStart + (gameStep * _id);
     }
 
-    function setDividendManager(address payable _dividendManagerAddress) onlyOwner external  {
+    function getGameTimeRoyal(uint _id) public view returns (uint) {
+        return gamesStartRoyal + (gameStepRoyal * _id);
+    }
+
+    function setDividendManager(address _dividendManagerAddress) onlyOwner external  {
         require(_dividendManagerAddress != address(0));
         dividendManagerAddress = _dividendManagerAddress;
     }
@@ -639,58 +703,54 @@ contract SNKGame is AdminRole {
     //при передачи старт и стоп необходимо учитывать дубликаты (старт = последняя позиция дубликата)
     function _setWinnersAmount(Game storage game, uint _start, uint _stop) internal {
         uint _bet;
-        uint _betAmount;
         if (game.lastLeftPos == game.lastRightPos) {
             _bet = _select_at(game, game.lastLeftPos);
             game.winnersAmount = _getBetAmount(game, _bet);
-            //            game.winnersCount = game.users[_bet].length;
             game.allDone = true;
         } else {
             _start = _start > 0 ? _start : game.lastLeftPos;
             _stop = _stop > 0 ? _stop : game.lastRightPos;
             uint i = _start;
             uint winnersAmount;
-            //            uint winnersCount;
             while(i <= _stop) {
                 if (i == game.resPos) {
                     i++;
                     continue;
                 }
                 _bet = _select_at(game, i);
-                _betAmount = _getBetAmount(game, _bet);
-                winnersAmount = winnersAmount.add(_betAmount);
-                //                winnersCount = winnersCount.add(1);
+                winnersAmount = winnersAmount.add(_getBetAmount(game, _bet));
+
                 //верим что старт == последней позиции дубликата
                 if (i != _start && game.bets[_bet].dupes > 0) {
                     i += game.bets[_bet].dupes;
-                    //                    winnersCount = winnersCount.add(game.bets[_bet].dupes);
-                    //                    winnersAmount = winnersAmount.add(game.bets[_bet].dupes * _betAmount);
                 }
 
                 if (i >= game.lastRightPos) game.allDone = true;
                 i++;
             }
-            // это сумма ставок победителей!
-            game.winnersAmount = winnersAmount;
-            //            game.winnersCount = winnersCount;
+            game.winnersAmount = game.winnersAmount.add(winnersAmount);
+
         }
 
         if (game.allDone) {
             uint profit = game.amount - game.winnersAmount;
-            if (profit > 0) {
-                uint ownerPercent = _valueFromPercent(profit, 1000); //10% fee
-                game.prizePool = profit.sub(ownerPercent);
-                dividendManagerAddress.transfer(ownerPercent);
-            }
+            uint royalBonus = _valueFromPercent(profit, 500);
+            uint ownerPercent = _valueFromPercent(profit, 400);
+            royalGameBonus = royalGameBonus.add(royalBonus);
+            DividendManagerInterface dividendManager = DividendManagerInterface(dividendManagerAddress);
+            dividendManager.depositDividend.value(ownerPercent)();
+            game.winnersAmount = game.winnersAmount.sub(royalBonus).sub(ownerPercent);
         }
 
     }
 
 
-    function _getBetAmount(Game storage game, uint _bet) internal view returns (uint amount) {
+    function _getBetAmount(Game storage game, uint _bet) internal view returns (uint) {
+        uint amount;
         for (uint i = 0; i < game.users[_bet].length; i++) {
             amount = amount.add(game.betUsers[_bet][game.users[_bet][i]]);
         }
+        return amount;
     }
 
 
@@ -703,30 +763,39 @@ contract SNKGame is AdminRole {
         require(amount > 0);
         msg.sender.transfer(amount);
 
-        //        for (uint i = 0; i < game.userBets[msg.sender].length; i++) {
-        //            if (game.userBets[msg.sender][i] >= game.lastLeftValue &&
-        //                game.userBets[msg.sender][i] <= game.lastRightValue)
-        //            {
-        //                amount += game.betUsers[game.userBets[msg.sender][i]][msg.sender];
-        //            }
-        //        }
-        //
-        //        if (amount > 0) {
-        //            uint p = _percent(amount, game.winnersAmount, 4);
-        //            msg.sender.transfer(_valueFromPercent(game.amount, p));
-        //        }
+//        for (uint i = 0; i < game.userBets[msg.sender].length; i++) {
+//            if (game.userBets[msg.sender][i] >= game.lastLeftValue &&
+//                game.userBets[msg.sender][i] <= game.lastRightValue)
+//            {
+//                amount += game.betUsers[game.userBets[msg.sender][i]][msg.sender];
+//            }
+//        }
+//
+//        if (amount > 0) {
+//            uint p = _percent(amount, game.winnersAmount, 4);
+//            msg.sender.transfer(_valueFromPercent(game.amount, p));
+//        }
+    }
+
+
+    // todo remove
+    function getPrizeAmount(uint _game, address _user) public view returns (uint) {
+        return _getPrizeAmount(games[_game], _user);
+    }
+    function getUserAmount(uint _game, address _user) public view returns (uint) {
+        return _getUserAmount(games[_game], _user);
     }
 
     function _getPrizeAmount(Game storage game, address user) internal view returns (uint amount){
         amount = _getUserAmount(game, user);
-        if (amount > 0 && game.prizePool > 0) {
-            // доля суммы ставок игрока, которые вошли в число победивших от общей суммы ставок победителей
-            amount = amount.add(game.prizePool.mul(amount).div(game.winnersAmount));
+        if (amount > 0) {
+            uint p = _percent(amount, game.amount, 4);
+            amount = _valueFromPercent(game.winnersAmount, p);
         }
     }
 
     function _getUserAmount(Game storage game, address user) internal view returns (uint amount){
-        //        amount = 0;
+//        amount = 0;
         for (uint i = 0; i < game.userBets[user].length; i++) {
             if (game.userBets[user][i] >= game.lastLeftValue &&
                 game.userBets[user][i] <= game.lastRightValue)
@@ -766,6 +835,18 @@ contract SNKGame is AdminRole {
 
     function count(uint _game) public view returns (uint) {
         return _count(games[_game]);
+    }
+
+    function getPosRoyal(uint _game, uint _value) public view returns (uint) {
+        return _getPos(royalGames[_game], _value);
+    }
+
+    function select_atRoyal(uint _game, uint pos) public view returns (uint) {
+        return _select_at(royalGames[_game], pos);
+    }
+
+    function countRoyal(uint _game) public view returns (uint) {
+        return _count(royalGames[_game]);
     }
 
 

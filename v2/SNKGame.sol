@@ -1,277 +1,19 @@
 pragma solidity ^0.5.10;
 
-/**
- * @title SafeMath
- * @dev Math operations with safety checks that revert on error
- */
-library SafeMath {
-    int256 constant private INT256_MIN = -2**255;
+import "@openzeppelin/upgrades/contracts/Initializable.sol";
+import "@openzeppelin/contracts-ethereum-package/contracts/math/SafeMath.sol";
+import "./lib/AdminRole.sol";
 
-    /**
-    * @dev Multiplies two unsigned integers, reverts on overflow.
-    */
-    function mul(uint256 a, uint256 b) internal pure returns (uint256) {
-        // Gas optimization: this is cheaper than requiring 'a' not being zero, but the
-        // benefit is lost if 'b' is also tested.
-        // See: https://github.com/OpenZeppelin/openzeppelin-solidity/pull/522
-        if (a == 0) {
-            return 0;
-        }
 
-        uint256 c = a * b;
-        require(c / a == b);
-
-        return c;
-    }
-
-    /**
-    * @dev Multiplies two signed integers, reverts on overflow.
-    */
-    function mul(int256 a, int256 b) internal pure returns (int256) {
-        // Gas optimization: this is cheaper than requiring 'a' not being zero, but the
-        // benefit is lost if 'b' is also tested.
-        // See: https://github.com/OpenZeppelin/openzeppelin-solidity/pull/522
-        if (a == 0) {
-            return 0;
-        }
-
-        require(!(a == -1 && b == INT256_MIN)); // This is the only case of overflow not detected by the check below
-
-        int256 c = a * b;
-        require(c / a == b);
-
-        return c;
-    }
-
-    /**
-    * @dev Integer division of two unsigned integers truncating the quotient, reverts on division by zero.
-    */
-    function div(uint256 a, uint256 b) internal pure returns (uint256) {
-        // Solidity only automatically asserts when dividing by 0
-        require(b > 0);
-        uint256 c = a / b;
-        // assert(a == b * c + a % b); // There is no case in which this doesn't hold
-
-        return c;
-    }
-
-    /**
-    * @dev Integer division of two signed integers truncating the quotient, reverts on division by zero.
-    */
-    function div(int256 a, int256 b) internal pure returns (int256) {
-        require(b != 0); // Solidity only automatically asserts when dividing by 0
-        require(!(b == -1 && a == INT256_MIN)); // This is the only case of overflow
-
-        int256 c = a / b;
-
-        return c;
-    }
-
-    /**
-    * @dev Subtracts two unsigned integers, reverts on overflow (i.e. if subtrahend is greater than minuend).
-    */
-    function sub(uint256 a, uint256 b) internal pure returns (uint256) {
-        require(b <= a);
-        uint256 c = a - b;
-
-        return c;
-    }
-
-    /**
-    * @dev Subtracts two signed integers, reverts on overflow.
-    */
-    function sub(int256 a, int256 b) internal pure returns (int256) {
-        int256 c = a - b;
-        require((b >= 0 && c <= a) || (b < 0 && c > a));
-
-        return c;
-    }
-
-    /**
-    * @dev Adds two unsigned integers, reverts on overflow.
-    */
-    function add(uint256 a, uint256 b) internal pure returns (uint256) {
-        uint256 c = a + b;
-        require(c >= a);
-
-        return c;
-    }
-
-    /**
-    * @dev Adds two signed integers, reverts on overflow.
-    */
-    function add(int256 a, int256 b) internal pure returns (int256) {
-        int256 c = a + b;
-        require((b >= 0 && c >= a) || (b < 0 && c < a));
-
-        return c;
-    }
-
-    /**
-    * @dev Divides two unsigned integers and returns the remainder (unsigned integer modulo),
-    * reverts when dividing by zero.
-    */
-    function mod(uint256 a, uint256 b) internal pure returns (uint256) {
-        require(b != 0);
-        return a % b;
-    }
+contract DividendManagerInterface {
+    function depositDividend() external payable;
 }
-
-
-/**
- * @title MerkleProof
- * @dev Merkle proof verification based on
- * https://github.com/ameensol/merkle-tree-solidity/blob/master/src/MerkleProof.sol
- */
-library MerkleProof {
-    /**
-     * @dev Verifies a Merkle proof proving the existence of a leaf in a Merkle tree. Assumes that each pair of leaves
-     * and each pair of pre-images are sorted.
-     * @param proof Merkle proof containing sibling hashes on the branch from the leaf to the root of the Merkle tree
-     * @param root Merkle root
-     * @param leaf Leaf of Merkle tree
-     */
-    function verify(bytes32[] memory proof, bytes32 root, bytes32 leaf) internal pure returns (bool) {
-        bytes32 computedHash = leaf;
-
-        for (uint256 i = 0; i < proof.length; i++) {
-            bytes32 proofElement = proof[i];
-
-            if (computedHash < proofElement) {
-                // Hash(current computed hash + current element of the proof)
-                computedHash = keccak256(abi.encodePacked(computedHash, proofElement));
-            } else {
-                // Hash(current element of the proof + current computed hash)
-                computedHash = keccak256(abi.encodePacked(proofElement, computedHash));
-            }
-        }
-
-        // Check if the computed hash (root) is equal to the provided root
-        return computedHash == root;
-    }
-}
-
-/**
- * @title Roles
- * @dev Library for managing addresses assigned to a Role.
- */
-library Roles {
-    struct Role {
-        mapping (address => bool) bearer;
-    }
-
-    /**
-     * @dev give an account access to this role
-     */
-    function add(Role storage role, address account) internal {
-        require(account != address(0));
-        require(!has(role, account));
-
-        role.bearer[account] = true;
-    }
-
-    /**
-     * @dev remove an account's access to this role
-     */
-    function remove(Role storage role, address account) internal {
-        require(account != address(0));
-        require(has(role, account));
-
-        role.bearer[account] = false;
-    }
-
-    /**
-     * @dev check if an account has this role
-     * @return bool
-     */
-    function has(Role storage role, address account) internal view returns (bool) {
-        require(account != address(0));
-        return role.bearer[account];
-    }
-}
-
-
-contract AdminRole {
-    using Roles for Roles.Role;
-
-    event AdminAdded(address indexed account);
-    event AdminRemoved(address indexed account);
-    event OwnerAdded(address indexed account);
-    event OwnerRemoved(address indexed account);
-
-    Roles.Role private _admins;
-    Roles.Role private _owners;
-
-    constructor () internal {
-        _addAdmin(msg.sender);
-        _addOwner(msg.sender);
-    }
-
-    modifier onlyOwner() {
-        require(isOwner(msg.sender));
-        _;
-    }
-
-    modifier onlyAdmin() {
-        require(isAdmin(msg.sender));
-        _;
-    }
-
-    function isOwner(address account) public view returns (bool) {
-        return _owners.has(account);
-    }
-
-    function isAdmin(address account) public view returns (bool) {
-        return _admins.has(account);
-    }
-
-    //    function addOwner(address account) public onlyOwner {
-    //        _addOwner(account);
-    //    }
-
-    function addAdmin(address account) public onlyOwner {
-        _addAdmin(account);
-    }
-
-    function renounceAdmin() public {
-        _removeAdmin(msg.sender);
-    }
-
-    //    function renounceOwner() public {
-    //        _removeOwner(msg.sender);
-    //    }
-
-    function removeAdmin(address account) public onlyOwner {
-        _removeAdmin(account);
-    }
-
-    function _addAdmin(address account) internal {
-        _admins.add(account);
-        emit AdminAdded(account);
-    }
-
-    function _addOwner(address account) internal {
-        _owners.add(account);
-        emit OwnerAdded(account);
-    }
-
-    function _removeAdmin(address account) internal {
-        _admins.remove(account);
-        emit AdminRemoved(account);
-    }
-
-    //    function _removeOwner(address account) internal {
-    //        _owners.remove(account);
-    //        emit OwnerRemoved(account);
-    //    }
-}
-
 
 //TODO referral
-contract SNKGame is AdminRole {
+contract SNKGame is Initializable, AdminRole {
     using SafeMath for uint;
 
-    address payable public dividendManagerAddress;
+    address public dividendManagerAddress;
 
     struct Node {
         mapping (bool => uint) children;
@@ -295,7 +37,7 @@ contract SNKGame is AdminRole {
 
         uint winnersAmount;
         uint prizePool;
-        //        uint winnersCount;
+//        uint winnersCount;
         uint lastLeftPos;
         uint lastRightPos;
         uint lastLeftValue;
@@ -308,23 +50,30 @@ contract SNKGame is AdminRole {
     uint public gameStep;
     uint public closeBetsTime;
     uint public gamesStart;
-    uint public betValue;
-
-
 
     event NewBet(address indexed user, uint indexed game, uint bet, uint value);
     event ResultSet(uint indexed game, uint res, uint lastLeftValue, uint lastRightValue, uint amount);
     event PrizeTaken(address indexed user, uint game, uint amount);
 
-    constructor(address payable _dividendManagerAddress, uint _betValue) public {
+    function initialize(address _dividendManagerAddress, uint _betAmount) public initializer {
         require(_dividendManagerAddress != address(0));
+        AdminRole.initialize(sender);
         dividendManagerAddress = _dividendManagerAddress;
 
         gameStep = 10 minutes;
         closeBetsTime = 3 minutes;
         gamesStart = 1568332800; //Friday, 13 September 2019 г., 0:00:00
-        betValue = _betValue;
     }
+
+
+//    constructor(address _dividendManagerAddress) public {
+//        require(_dividendManagerAddress != address(0));
+//        dividendManagerAddress = _dividendManagerAddress;
+//
+//        gameStep = 10 minutes;
+//        closeBetsTime = 3 minutes;
+//        gamesStart = 1568332800; //Friday, 13 September 2019 г., 0:00:00
+//    }
 
 
     function() external payable {
@@ -334,7 +83,7 @@ contract SNKGame is AdminRole {
 
     function makeBet(uint _game, uint _bet) public payable {
         require(_bet > 0);
-        require(betValue == 0 ? msg.value > 0 : msg.value == betValue);
+        require(msg.value > 0);
         if (_game == 0) {
             _game = getCurrentGameId();
             if (now > getGameTime(_game) - closeBetsTime) {
@@ -409,7 +158,7 @@ contract SNKGame is AdminRole {
         return gamesStart + (gameStep * _id);
     }
 
-    function setDividendManager(address payable _dividendManagerAddress) onlyOwner external  {
+    function setDividendManager(address _dividendManagerAddress) onlyOwner external  {
         require(_dividendManagerAddress != address(0));
         dividendManagerAddress = _dividendManagerAddress;
     }
@@ -643,14 +392,14 @@ contract SNKGame is AdminRole {
         if (game.lastLeftPos == game.lastRightPos) {
             _bet = _select_at(game, game.lastLeftPos);
             game.winnersAmount = _getBetAmount(game, _bet);
-            //            game.winnersCount = game.users[_bet].length;
+//            game.winnersCount = game.users[_bet].length;
             game.allDone = true;
         } else {
             _start = _start > 0 ? _start : game.lastLeftPos;
             _stop = _stop > 0 ? _stop : game.lastRightPos;
             uint i = _start;
             uint winnersAmount;
-            //            uint winnersCount;
+//            uint winnersCount;
             while(i <= _stop) {
                 if (i == game.resPos) {
                     i++;
@@ -659,12 +408,12 @@ contract SNKGame is AdminRole {
                 _bet = _select_at(game, i);
                 _betAmount = _getBetAmount(game, _bet);
                 winnersAmount = winnersAmount.add(_betAmount);
-                //                winnersCount = winnersCount.add(1);
+//                winnersCount = winnersCount.add(1);
                 //верим что старт == последней позиции дубликата
                 if (i != _start && game.bets[_bet].dupes > 0) {
                     i += game.bets[_bet].dupes;
-                    //                    winnersCount = winnersCount.add(game.bets[_bet].dupes);
-                    //                    winnersAmount = winnersAmount.add(game.bets[_bet].dupes * _betAmount);
+//                    winnersCount = winnersCount.add(game.bets[_bet].dupes);
+//                    winnersAmount = winnersAmount.add(game.bets[_bet].dupes * _betAmount);
                 }
 
                 if (i >= game.lastRightPos) game.allDone = true;
@@ -672,16 +421,15 @@ contract SNKGame is AdminRole {
             }
             // это сумма ставок победителей!
             game.winnersAmount = winnersAmount;
-            //            game.winnersCount = winnersCount;
+//            game.winnersCount = winnersCount;
         }
 
         if (game.allDone) {
             uint profit = game.amount - game.winnersAmount;
-            if (profit > 0) {
-                uint ownerPercent = _valueFromPercent(profit, 1000); //10% fee
-                game.prizePool = profit.sub(ownerPercent);
-                dividendManagerAddress.transfer(ownerPercent);
-            }
+            uint ownerPercent = _valueFromPercent(profit, 1000); //10% fee
+            DividendManagerInterface dividendManager = DividendManagerInterface(dividendManagerAddress);
+            dividendManager.depositDividend.value(ownerPercent)();
+            game.prizePool = profit.sub(ownerPercent);
         }
 
     }
@@ -703,30 +451,39 @@ contract SNKGame is AdminRole {
         require(amount > 0);
         msg.sender.transfer(amount);
 
-        //        for (uint i = 0; i < game.userBets[msg.sender].length; i++) {
-        //            if (game.userBets[msg.sender][i] >= game.lastLeftValue &&
-        //                game.userBets[msg.sender][i] <= game.lastRightValue)
-        //            {
-        //                amount += game.betUsers[game.userBets[msg.sender][i]][msg.sender];
-        //            }
-        //        }
-        //
-        //        if (amount > 0) {
-        //            uint p = _percent(amount, game.winnersAmount, 4);
-        //            msg.sender.transfer(_valueFromPercent(game.amount, p));
-        //        }
+//        for (uint i = 0; i < game.userBets[msg.sender].length; i++) {
+//            if (game.userBets[msg.sender][i] >= game.lastLeftValue &&
+//                game.userBets[msg.sender][i] <= game.lastRightValue)
+//            {
+//                amount += game.betUsers[game.userBets[msg.sender][i]][msg.sender];
+//            }
+//        }
+//
+//        if (amount > 0) {
+//            uint p = _percent(amount, game.winnersAmount, 4);
+//            msg.sender.transfer(_valueFromPercent(game.amount, p));
+//        }
+    }
+
+
+    // todo remove
+    function getPrizeAmount(uint _game, address _user) public view returns (uint) {
+        return _getPrizeAmount(games[_game], _user);
+    }
+    function getUserAmount(uint _game, address _user) public view returns (uint) {
+        return _getUserAmount(games[_game], _user);
     }
 
     function _getPrizeAmount(Game storage game, address user) internal view returns (uint amount){
         amount = _getUserAmount(game, user);
-        if (amount > 0 && game.prizePool > 0) {
+        if (amount > 0) {
             // доля суммы ставок игрока, которые вошли в число победивших от общей суммы ставок победителей
-            amount = amount.add(game.prizePool.mul(amount).div(game.winnersAmount));
+            amount = game.prizePool.mul(amount).div(game.winnersAmount);
         }
     }
 
     function _getUserAmount(Game storage game, address user) internal view returns (uint amount){
-        //        amount = 0;
+//        amount = 0;
         for (uint i = 0; i < game.userBets[user].length; i++) {
             if (game.userBets[user][i] >= game.lastLeftValue &&
                 game.userBets[user][i] <= game.lastRightValue)
