@@ -117,38 +117,179 @@ library SafeMath {
     }
 }
 
+/**
+ * @dev Interface of the ERC20 standard as defined in the EIP. Does not include
+ * the optional functions; to access them see `ERC20Detailed`.
+ */
+interface IERC20 {
+    /**
+     * @dev Returns the amount of tokens in existence.
+     */
+    function totalSupply() external view returns (uint256);
+
+    /**
+     * @dev Returns the amount of tokens owned by `account`.
+     */
+    function balanceOf(address account) external view returns (uint256);
+
+    /**
+     * @dev Moves `amount` tokens from the caller's account to `recipient`.
+     *
+     * Returns a boolean value indicating whether the operation succeeded.
+     *
+     * Emits a `Transfer` event.
+     */
+    function transfer(address recipient, uint256 amount) external returns (bool);
+
+    /**
+     * @dev Returns the remaining number of tokens that `spender` will be
+     * allowed to spend on behalf of `owner` through `transferFrom`. This is
+     * zero by default.
+     *
+     * This value changes when `approve` or `transferFrom` are called.
+     */
+    function allowance(address owner, address spender) external view returns (uint256);
+
+    /**
+     * @dev Sets `amount` as the allowance of `spender` over the caller's tokens.
+     *
+     * Returns a boolean value indicating whether the operation succeeded.
+     *
+     * > Beware that changing an allowance with this method brings the risk
+     * that someone may use both the old and the new allowance by unfortunate
+     * transaction ordering. One possible solution to mitigate this race
+     * condition is to first reduce the spender's allowance to 0 and set the
+     * desired value afterwards:
+     * https://github.com/ethereum/EIPs/issues/20#issuecomment-263524729
+     *
+     * Emits an `Approval` event.
+     */
+    function approve(address spender, uint256 amount) external returns (bool);
+
+    /**
+     * @dev Moves `amount` tokens from `sender` to `recipient` using the
+     * allowance mechanism. `amount` is then deducted from the caller's
+     * allowance.
+     *
+     * Returns a boolean value indicating whether the operation succeeded.
+     *
+     * Emits a `Transfer` event.
+     */
+    function transferFrom(address sender, address recipient, uint256 amount) external returns (bool);
+
+    /**
+     * @dev Emitted when `value` tokens are moved from one account (`from`) to
+     * another (`to`).
+     *
+     * Note that `value` may be zero.
+     */
+    event Transfer(address indexed from, address indexed to, uint256 value);
+
+    /**
+     * @dev Emitted when the allowance of a `spender` for an `owner` is set by
+     * a call to `approve`. `value` is the new allowance.
+     */
+    event Approval(address indexed owner, address indexed spender, uint256 value);
+}
+
 
 /**
- * @title MerkleProof
- * @dev Merkle proof verification based on
- * https://github.com/ameensol/merkle-tree-solidity/blob/master/src/MerkleProof.sol
+ * @dev Contract module which provides a basic access control mechanism, where
+ * there is an account (an owner) that can be granted exclusive access to
+ * specific functions.
+ *
+ * This module is used through inheritance. It will make available the modifier
+ * `onlyOwner`, which can be aplied to your functions to restrict their use to
+ * the owner.
  */
-library MerkleProof {
+contract Ownable {
+    address private _owner;
+
+    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+
     /**
-     * @dev Verifies a Merkle proof proving the existence of a leaf in a Merkle tree. Assumes that each pair of leaves
-     * and each pair of pre-images are sorted.
-     * @param proof Merkle proof containing sibling hashes on the branch from the leaf to the root of the Merkle tree
-     * @param root Merkle root
-     * @param leaf Leaf of Merkle tree
+     * @dev Initializes the contract setting the deployer as the initial owner.
      */
-    function verify(bytes32[] memory proof, bytes32 root, bytes32 leaf) internal pure returns (bool) {
-        bytes32 computedHash = leaf;
-
-        for (uint256 i = 0; i < proof.length; i++) {
-            bytes32 proofElement = proof[i];
-
-            if (computedHash < proofElement) {
-                // Hash(current computed hash + current element of the proof)
-                computedHash = keccak256(abi.encodePacked(computedHash, proofElement));
-            } else {
-                // Hash(current element of the proof + current computed hash)
-                computedHash = keccak256(abi.encodePacked(proofElement, computedHash));
-            }
-        }
-
-        // Check if the computed hash (root) is equal to the provided root
-        return computedHash == root;
+    constructor () internal {
+        _owner = msg.sender;
+        emit OwnershipTransferred(address(0), _owner);
     }
+
+    /**
+     * @dev Returns the address of the current owner.
+     */
+    function owner() public view returns (address) {
+        return _owner;
+    }
+
+    /**
+     * @dev Throws if called by any account other than the owner.
+     */
+    modifier onlyOwner() {
+        require(isOwner(), "Ownable: caller is not the owner");
+        _;
+    }
+
+    /**
+     * @dev Returns true if the caller is the current owner.
+     */
+    function isOwner() public view returns (bool) {
+        return msg.sender == _owner;
+    }
+
+    /**
+     * @dev Leaves the contract without owner. It will not be possible to call
+     * `onlyOwner` functions anymore. Can only be called by the current owner.
+     *
+     * > Note: Renouncing ownership will leave the contract without an owner,
+     * thereby removing any functionality that is only available to the owner.
+     */
+    function renounceOwnership() public onlyOwner {
+        emit OwnershipTransferred(_owner, address(0));
+        _owner = address(0);
+    }
+
+    /**
+     * @dev Transfers ownership of the contract to a new account (`newOwner`).
+     * Can only be called by the current owner.
+     */
+    function transferOwnership(address newOwner) public onlyOwner {
+        _transferOwnership(newOwner);
+    }
+
+    /**
+     * @dev Transfers ownership of the contract to a new account (`newOwner`).
+     */
+    function _transferOwnership(address newOwner) internal {
+        require(newOwner != address(0), "Ownable: new owner is the zero address");
+        emit OwnershipTransferred(_owner, newOwner);
+        _owner = newOwner;
+    }
+}
+
+/**
+ * @title Contracts that should be able to recover tokens
+ * @author SylTi
+ * @dev This allow a contract to recover any ERC20 token received in a contract by transferring the balance to the contract owner.
+ * This will prevent any accidental loss of tokens.
+ */
+contract CanReclaimToken is Ownable {
+
+    /**
+     * @dev Reclaim all ERC20 compatible tokens
+     * @param token ERC20 The address of the token contract
+     */
+    function reclaimToken(IERC20 token) external onlyOwner {
+        address payable owner = address(uint160(owner()));
+
+        if (address(token) == address(0)) {
+            owner.transfer(address(this).balance);
+            return;
+        }
+        uint256 balance = token.balanceOf(address(this));
+        token.transfer(owner, balance);
+    }
+
 }
 
 /**
@@ -191,25 +332,16 @@ library Roles {
 }
 
 
-contract AdminRole {
+contract AdminRole is Ownable {
     using Roles for Roles.Role;
 
     event AdminAdded(address indexed account);
     event AdminRemoved(address indexed account);
-    event OwnerAdded(address indexed account);
-    event OwnerRemoved(address indexed account);
 
     Roles.Role private _admins;
-    Roles.Role private _owners;
 
     constructor () internal {
         _addAdmin(msg.sender);
-        _addOwner(msg.sender);
-    }
-
-    modifier onlyOwner() {
-        require(isOwner(msg.sender));
-        _;
     }
 
     modifier onlyAdmin() {
@@ -217,17 +349,9 @@ contract AdminRole {
         _;
     }
 
-    function isOwner(address account) public view returns (bool) {
-        return _owners.has(account);
-    }
-
     function isAdmin(address account) public view returns (bool) {
         return _admins.has(account);
     }
-
-    //    function addOwner(address account) public onlyOwner {
-    //        _addOwner(account);
-    //    }
 
     function addAdmin(address account) public onlyOwner {
         _addAdmin(account);
@@ -236,10 +360,6 @@ contract AdminRole {
     function renounceAdmin() public {
         _removeAdmin(msg.sender);
     }
-
-    //    function renounceOwner() public {
-    //        _removeOwner(msg.sender);
-    //    }
 
     function removeAdmin(address account) public onlyOwner {
         _removeAdmin(account);
@@ -250,25 +370,15 @@ contract AdminRole {
         emit AdminAdded(account);
     }
 
-    function _addOwner(address account) internal {
-        _owners.add(account);
-        emit OwnerAdded(account);
-    }
-
     function _removeAdmin(address account) internal {
         _admins.remove(account);
         emit AdminRemoved(account);
     }
-
-    //    function _removeOwner(address account) internal {
-    //        _owners.remove(account);
-    //        emit OwnerRemoved(account);
-    //    }
 }
 
 
 //TODO referral
-contract SNKGame is AdminRole {
+contract SNKGame is AdminRole, CanReclaimToken {
     using SafeMath for uint;
 
     address payable public dividendManagerAddress;
@@ -370,7 +480,6 @@ contract SNKGame is AdminRole {
     }
 
 
-    //при передачи старт и стоп необходимо учитывать дубликаты (старт = последняя позиция дубликата)
     function setWinnersAmount(uint _game, uint _start, uint _stop) onlyAdmin public {
         _setWinnersAmount(games[_game], _start, _stop);
         if (games[_game].allDone) {
@@ -381,7 +490,7 @@ contract SNKGame is AdminRole {
     function isPrizeTaken(uint _game, address _user) public view returns (bool){
         return games[_game].executed[_user];
     }
-    function isPrizeTaken(uint _game) public view returns (bool){
+    function isMyPrizeTaken(uint _game) public view returns (bool){
         return isPrizeTaken(_game, msg.sender);
     }
 
@@ -392,16 +501,17 @@ contract SNKGame is AdminRole {
         }
         return _getPrizeAmount(games[_game], _user);
     }
-    function checkPrize(uint _game) public view returns (uint) {
+
+    function checkMyPrize(uint _game) public view returns (uint) {
         return checkPrize(_game, msg.sender);
     }
 
-
-    function getPrize(uint _game, address _user) public {
+    function getPrize(uint _game, address payable _user) public {
         uint amount = _getPrize(games[_game], _user);
         emit PrizeTaken(_user, _game, amount);
     }
-    function getPrize(uint _game) public {
+
+    function getMyPrize(uint _game) public {
         getPrize(_game, msg.sender);
     }
 
@@ -643,14 +753,12 @@ contract SNKGame is AdminRole {
         if (game.lastLeftPos == game.lastRightPos) {
             _bet = _select_at(game, game.lastLeftPos);
             game.winnersAmount = _getBetAmount(game, _bet);
-            //            game.winnersCount = game.users[_bet].length;
             game.allDone = true;
         } else {
             _start = _start > 0 ? _start : game.lastLeftPos;
             _stop = _stop > 0 ? _stop : game.lastRightPos;
             uint i = _start;
             uint winnersAmount;
-            //            uint winnersCount;
             while(i <= _stop) {
                 if (i == game.resPos) {
                     i++;
@@ -659,12 +767,9 @@ contract SNKGame is AdminRole {
                 _bet = _select_at(game, i);
                 _betAmount = _getBetAmount(game, _bet);
                 winnersAmount = winnersAmount.add(_betAmount);
-                //                winnersCount = winnersCount.add(1);
                 //верим что старт == последней позиции дубликата
                 if (i != _start && game.bets[_bet].dupes > 0) {
                     i += game.bets[_bet].dupes;
-                    //                    winnersCount = winnersCount.add(game.bets[_bet].dupes);
-                    //                    winnersAmount = winnersAmount.add(game.bets[_bet].dupes * _betAmount);
                 }
 
                 if (i >= game.lastRightPos) game.allDone = true;
@@ -672,13 +777,12 @@ contract SNKGame is AdminRole {
             }
             // это сумма ставок победителей!
             game.winnersAmount = winnersAmount;
-            //            game.winnersCount = winnersCount;
         }
 
         if (game.allDone) {
             uint profit = game.amount - game.winnersAmount;
             if (profit > 0) {
-                uint ownerPercent = _valueFromPercent(profit, 1000); //10% fee
+                uint ownerPercent = profit.div(10); //10% fee
                 game.prizePool = profit.sub(ownerPercent);
                 dividendManagerAddress.transfer(ownerPercent);
             }
@@ -686,35 +790,21 @@ contract SNKGame is AdminRole {
 
     }
 
-
     function _getBetAmount(Game storage game, uint _bet) internal view returns (uint amount) {
         for (uint i = 0; i < game.users[_bet].length; i++) {
             amount = amount.add(game.betUsers[_bet][game.users[_bet][i]]);
         }
     }
 
-
-    function _getPrize(Game storage game, address user) internal returns (uint amount) {
+    function _getPrize(Game storage game, address payable user) internal returns (uint amount) {
         require(game.allDone);
         require(!game.executed[user]);
         game.executed[user] = true;
         amount = _getPrizeAmount(game, user);
 
         require(amount > 0);
-        msg.sender.transfer(amount);
+        user.transfer(amount);
 
-        //        for (uint i = 0; i < game.userBets[msg.sender].length; i++) {
-        //            if (game.userBets[msg.sender][i] >= game.lastLeftValue &&
-        //                game.userBets[msg.sender][i] <= game.lastRightValue)
-        //            {
-        //                amount += game.betUsers[game.userBets[msg.sender][i]][msg.sender];
-        //            }
-        //        }
-        //
-        //        if (amount > 0) {
-        //            uint p = _percent(amount, game.winnersAmount, 4);
-        //            msg.sender.transfer(_valueFromPercent(game.amount, p));
-        //        }
     }
 
     function _getPrizeAmount(Game storage game, address user) internal view returns (uint amount){
@@ -726,7 +816,7 @@ contract SNKGame is AdminRole {
     }
 
     function _getUserAmount(Game storage game, address user) internal view returns (uint amount){
-        //        amount = 0;
+        amount = 0;
         for (uint i = 0; i < game.userBets[user].length; i++) {
             if (game.userBets[user][i] >= game.lastLeftValue &&
                 game.userBets[user][i] <= game.lastRightValue)
@@ -736,25 +826,8 @@ contract SNKGame is AdminRole {
         }
     }
 
-    //1% - 100, 10% - 1000 50% - 5000
-    function _valueFromPercent(uint _value, uint _percent) internal pure returns(uint quotient) {
-        uint _quotient = _value.mul(_percent).div(10000);
-        return ( _quotient);
-    }
-
-
-    function _percent(uint numerator, uint denominator, uint precision) internal pure returns(uint) {
-        uint _numerator  = numerator * 10 ** (precision+1);
-        uint _quotient =  ((_numerator / denominator) + 5) / 10;
-        return _quotient;
-    }
-
-
-
     //AVL FUNCTIONS
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-
 
     function getPos(uint _game, uint _value) public view returns (uint) {
         return _getPos(games[_game], _value);
