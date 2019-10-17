@@ -1,0 +1,26 @@
+{
+  "name": "cryptorator",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "lib": "lib"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KoltsovAnton/SNK.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/KoltsovAnton/SNK/issues"
+  },
+  "homepage": "https://github.com/KoltsovAnton/SNK#readme",
+  "dependencies": {
+    "@openzeppelin/contracts-ethereum-package": "^2.3.0",
+    "@openzeppelin/upgrades": "^2.5.3"
+  }
+}
