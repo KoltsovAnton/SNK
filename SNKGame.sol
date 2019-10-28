@@ -447,12 +447,8 @@ contract SNKGame is AdminRole, CanReclaimToken {
         require(betValue == 0 ? msg.value > 0 : msg.value == betValue);
         if (_game == 0) {
             _game = getCurrentGameId();
-            if (now > getGameTime(_game) - closeBetsTime) {
-                _game++;
-            }
-        } else {
-            require(now < getGameTime(_game) - closeBetsTime);
         }
+        require(now < getGameTime(_game) - closeBetsTime);
 
         _makeBet(games[_game], _bet);
 
@@ -487,32 +483,31 @@ contract SNKGame is AdminRole, CanReclaimToken {
         }
     }
 
-    function isPrizeTaken(uint _game, address _user) public view returns (bool){
+    function isPrizeTaken(uint _game, address _user) external view returns (bool){
         return games[_game].executed[_user];
     }
-    function isMyPrizeTaken(uint _game) public view returns (bool){
-        return isPrizeTaken(_game, msg.sender);
+    function isMyPrizeTaken(uint _game) external view returns (bool){
+        return games[_game].executed[msg.sender];
     }
 
 
-    function checkPrize(uint _game, address _user) public view returns (uint) {
-        if (games[_game].executed[_user]) {
-            return 0;
-        }
+    function checkPrize(uint _game, address _user) external view returns (uint) {
+        // if (games[_game].executed[_user]) {
+        //     return 0;
+        // }
         return _getPrizeAmount(games[_game], _user);
     }
 
-    function checkMyPrize(uint _game) public view returns (uint) {
-        return checkPrize(_game, msg.sender);
+    function checkMyPrize(uint _game) external view returns (uint) {
+        return _getPrizeAmount(games[_game], msg.sender);
     }
 
-    function getPrize(uint _game, address payable _user) public {
-        uint amount = _getPrize(games[_game], _user);
-        emit PrizeTaken(_user, _game, amount);
+    function getPrize(uint _game, address payable _user) external {
+        _getPrize(_game, _user);
     }
 
-    function getMyPrize(uint _game) public {
-        getPrize(_game, msg.sender);
+    function getMyPrize(uint _game) external {
+        _getPrize(_game, msg.sender);
     }
 
     function getGameTime(uint _id) public view returns (uint) {
@@ -524,6 +519,10 @@ contract SNKGame is AdminRole, CanReclaimToken {
         dividendManagerAddress = _dividendManagerAddress;
     }
 
+    function setBetValue(uint _betValue) onlyOwner external  {
+        betValue = _betValue;
+    }
+
     function getCurrentGameId() public view returns (uint) {
         return (now - gamesStart) / gameStep + 1;
     }
@@ -532,6 +531,15 @@ contract SNKGame is AdminRole, CanReclaimToken {
         return (now - gamesStart) / gameStep + 2;
     }
 
+    function getUsersAtBet(uint _game, uint _bet) public view returns (address[] memory users) {
+        // values = new uint[](games[_game].userBets[msg.sender].length);
+        // for (uint i = 0; i < games[_game].userBets[msg.sender].length; i++) {
+        //     values[i] = games[_game].userBets[msg.sender][i];
+        // }
+        return games[_game].users[_bet];
+    }
+
+
     function getUserBetValues(uint _game, address _user) public view returns (uint[] memory values) {
         // values = new uint[](games[_game].userBets[msg.sender].length);
         // for (uint i = 0; i < games[_game].userBets[msg.sender].length; i++) {
@@ -539,7 +547,8 @@ contract SNKGame is AdminRole, CanReclaimToken {
         // }
         return games[_game].userBets[_user];
     }
-    function getUserBetValues(uint _game) external view returns (uint[] memory values) {
+
+    function getMyUserBetValues(uint _game) external view returns (uint[] memory values) {
         return getUserBetValues(_game, msg.sender);
     }
 
@@ -549,10 +558,9 @@ contract SNKGame is AdminRole, CanReclaimToken {
             amounts[i] = games[_game].betUsers[ games[_game].userBets[_user][i] ][_user];
         }
     }
-    function getUserBetAmounts(uint _game) external view returns (uint[] memory values) {
+    function getMyUserBetAmounts(uint _game) external view returns (uint[] memory values) {
         return getUserBetAmounts(_game, msg.sender);
     }
-
 
     //INTERNAL FUNCTIONS
 
@@ -796,27 +804,40 @@ contract SNKGame is AdminRole, CanReclaimToken {
         }
     }
 
-    function _getPrize(Game storage game, address payable user) internal returns (uint amount) {
-        require(game.allDone);
-        require(!game.executed[user]);
-        game.executed[user] = true;
-        amount = _getPrizeAmount(game, user);
-
-        require(amount > 0);
-        user.transfer(amount);
-
+    function _getPrize(uint _game, address payable _user) internal {
+        Game storage game = games[_game];
+        require(game.allDone,  "game round not closed");
+        require(!game.executed[_user], "prize already taken");
+        uint amount = _getPrizeAmount(game, _user);
+        // require(amount > 0);
+        if (amount > 0) {
+            game.executed[_user] = true;
+            _user.transfer(amount);
+            emit PrizeTaken(_user, _game, amount);
+        } else {
+            revert("nothing to take");
+        }
     }
 
-    function _getPrizeAmount(Game storage game, address user) internal view returns (uint amount){
-        amount = _getUserAmount(game, user);
+    function getPrizeAmount(uint _game, address _user) external view returns (uint) {
+        return _getPrizeAmount(games[_game], _user);
+    }
+
+    function getUserAmount(uint _game, address _user) external view returns (uint) {
+        return _getUserAmount(games[_game], _user);
+    }
+
+    function _getPrizeAmount(Game storage game, address user) internal view returns (uint){
+        uint amount = _getUserAmount(game, user);
         if (amount > 0 && game.prizePool > 0) {
             // доля суммы ставок игрока, которые вошли в число победивших от общей суммы ставок победителей
             amount = amount.add(game.prizePool.mul(amount).div(game.winnersAmount));
         }
+        return amount;
     }
 
-    function _getUserAmount(Game storage game, address user) internal view returns (uint amount){
-        amount = 0;
+    function _getUserAmount(Game storage game, address user) internal view returns (uint){
+        uint amount = 0;
         for (uint i = 0; i < game.userBets[user].length; i++) {
             if (game.userBets[user][i] >= game.lastLeftValue &&
                 game.userBets[user][i] <= game.lastRightValue)
@@ -824,6 +845,7 @@ contract SNKGame is AdminRole, CanReclaimToken {
                 amount += game.betUsers[game.userBets[user][i]][user];
             }
         }
+        return amount;
     }
 
     //AVL FUNCTIONS
